@@ -1,0 +1,197 @@
+# ============================================================
+# 敏感配置均通过环境变量注入（见 README「快速启动」）
+# 本地开发请在 IDEA Run Configuration 的 Environment variables 中设置：
+# MYSQL_PASSWORD / REDIS_PASSWORD / RABBITMQ_USERNAME / RABBITMQ_PASSWORD
+# ============================================================
+spring:
+  application:
+    name: seckill
+  lifecycle:
+    timeout-per-shutdown-phase: "30s"
+  web:
+    resources:
+      add-mappings: false
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/seckills?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:change_me}
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      # 初始连接数
+      initialSize: 20
+      # 最小连接池数量
+      minIdle: 30
+      # 最大连接池数量
+      maxActive: 300
+      # 配置获取连接等待超时的时间
+      maxWait: 500
+      # 配置连接超时时间
+      connectTimeout: 3000
+      # 配置网络超时时间
+      socketTimeout: 3000
+      # 配置间隔多久才进行一次检测，检测需要关闭的空闲连接，单位是毫秒
+      timeBetweenEvictionRunsMillis: 30000
+      # 配置一个连接在池中最小生存的时间，单位是毫秒
+      minEvictableIdleTimeMillis: 300000
+      # 配置一个连接在池中最大生存的时间，单位是毫秒
+      maxEvictableIdleTimeMillis: 900000
+      # 配置检测连接是否有效
+      validationQuery: SELECT 1
+      testWhileIdle: true
+      testOnBorrow: false
+      testOnReturn: false
+      stat-view-servlet:
+        enabled: true
+        login-username: ${DRUID_USERNAME:admin}
+        login-password: ${DRUID_PASSWORD:admin}
+      web-stat-filter:
+        enabled: true
+      filter:
+        stat:
+          enabled: true
+          slow-sql-millis: 1000  # 慢SQL阈值(ms)
+          log-slow-sql: true
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 200
+          max-idle: 50
+          min-idle: 10
+          max-wait: 500ms
+
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    publisher-confirm-type: none   # 压测时不等待确认
+    publisher-returns: false
+    #publisher-confirm-type: correlated
+    #publisher-returns: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000
+          multiplier: 2
+    connectionFactory:
+      requestedHeartbeat: 60 # 心跳检测（避免连接超时）
+      connectionTimeout: 30000 # 连接超时时间
+      shutdownTimeout: 5000 # 关闭超时时间
+      maxConnections: 500
+
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.ygq.seckill.entity
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+  configuration:
+#    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl   # SQL
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+    cache-enabled: false
+    lazy-loading-enabled: false
+
+jwt:
+  secret: ${JWT_SECRET:your-256-bit-secret-key-please-change-in-production}  # 生产环境务必注入强随机密钥
+  expiration: 2592000000   # 24*7
+
+server:
+  port: 8088
+  shutdown: "graceful"
+  tomcat:
+    basedir: ./logs
+    accesslog:
+      enabled: false
+      directory: tomcat
+      pattern: '%{YYYY-MM-dd HH:mm:ss.SSS}t %m %U%q {%{post_data}r} %s %T'
+      prefix: access
+      suffix: .log
+      rename-on-rotate: true
+    threads:
+      max: 80                  # 最大工作线程数（原默认 200，避免线程过多导致上下文切换开销）
+      min-spare: 20            # 最小空闲线程数
+      accept-count: 100         # 等待队列最大长度（原默认 100）
+      max-connections: 10000     # 最大并发连接数
+      connection-timeout: 30000  # 连接超时
+      keep-alive-timeout: 30000
+      max-keep-alive-requests: 100
+    metrics:
+      enabled: true
+
+# 地址: /swagger-ui/index.html
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    display-request-duration: true
+    groups-order: ASC
+    operationsSorter: method
+  cache:
+    disabled: true
+
+logging:
+  level:
+      com.ygq.seckill: ERROR
+      org.springframework: ERROR
+      org.apache.ibatis: ERROR
+  config: classpath:logback-spring.xml
+
+seckill:
+  user:
+    qps: 500          # 用户限流
+  goods:
+    qps: 10000       # 商品限流
+  global:
+    qps: 5000       # 全局限流
+  local-queue:
+    capacity: 5000        # 本地队列容量，压测时可调至10000
+    batch-size: 50        # 批量发送大小
+    poll-timeout-ms: 50   # 轮询超时时间（毫秒）
+    consumer-threads: 4   # 并发消费者数量
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, prometheus  # 确保包含prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true  # 启用Prometheus导出
+    web:
+      server:
+        request:
+          autotime:
+            enabled: true
+    tags:
+      application: seckill   # 添加全局标签，便于区分不同应用
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true   # 开启 HTTP 请求直方图，用于计算百分位
+      slo:
+        http.server.requests: 10ms, 50ms, 100ms, 200ms, 500ms   # 定义 SLO 目标
+  endpoint:
+    prometheus:
+      enabled: true
+    metrics:
+      enabled: true
+    web:
+      exposure:
+        include: metrics  # 确保暴露metrics端点
+
+snowflake:
+  worker-id: 1  # 虚拟机1设为1，虚拟机2设为2
+  datacenter-id: 1  # 如果只有一个机房，保持不变
