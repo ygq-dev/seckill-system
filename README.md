@@ -8,7 +8,7 @@
 
 ## 架构总览
 
-![seckill-architecture](C:\Users\20781\Desktop\seckill\docs\images\seckill-architecture.png)
+![秒杀系统架构图](docs/images/seckill-architecture.png)
 
 **请求链路**：请求依次经过四层 Filter（内存售罄标记 → 全局自适应限流 → 用户级/商品级限流 → JWT 认证），无效流量在最外层被拦截；通过校验的请求完成活动时间与库存标记检查后，写入本地缓冲队列（`BlockingQueue`）立即返回「排队中」；异步线程池批量取出（`drainTo`）聚合投递 RabbitMQ；消费端逐条执行 Lua 脚本完成防重校验与原子扣减，再按商品聚合、条件更新库存并三表批量插入落库；事务提交后写缓存，前端轮询接口兜底查单。
 
@@ -56,7 +56,7 @@
 | 框架 | Spring Boot 3、Spring Security + JWT |
 | 数据 | MySQL 8、MyBatis-Plus、Redis（Lettuce + Lua） |
 | 中间件 | RabbitMQ（批量消费 prefetch 50、TTL+DLX）、Caffeine、Guava RateLimiter |
-| 可观测 | Micrometer + Prometheus（业务指标 + SLO 监控） |
+| 可观测 | Micrometer + Prometheus（业务指标 + SLO 监控）、慢 SQL 独立日志 |
 | 压测 | JMeter |
 
 ## 快速启动
@@ -64,11 +64,11 @@
 **环境依赖**：JDK 17+、MySQL 8、Redis 6+、RabbitMQ 3.x、Maven 3.8+
 
 ```bash
-# 1. 建库建表（订单主表/明细表/防重表等）
-mysql -uroot -p < sql/schema.sql
+# 1. 建库建表
+mysql -uroot -p < src/main/resources/sql/seckills.sql
 
-# 2. 配置连接信息（密码等敏感项通过环境变量注入）
-#    编辑 src/main/resources/application.yml
+# 2. 配置连接信息（敏感项通过环境变量注入）
+#    编辑 src/main/resources/application.yaml
 
 # 3. 启动（启动时自动执行 SeckillInitializer 完成缓存预热）
 mvn spring-boot:run
@@ -85,7 +85,7 @@ mvn spring-boot:run
 | 防重表重复订单 | 0 |
 | 压测方式 | JMeter 万级线程并发 + 库存事后核对 |
 
-> 环境定语：单机混部（应用与中间件同机部署）。压测脚本见 `docs/`。
+> 环境定语：单机混部（应用与中间件同机部署）。
 
 ## 已知边界与后续计划
 
@@ -104,17 +104,20 @@ mvn spring-boot:run
 src/main/java/com/ygq/seckill/
 ├── controller/          # 秒杀接口：校验、入队、查单轮询
 ├── filter/              # 四层漏斗 Filter 链
-├── service/             # 按商品聚合落库、条件更新
-├── mq/                  # MQAsyncSender / OrderReceiver / OutboxRetryService
-├── config/              # RabbitMQ / Redis / 线程池 / 安全配置
+├── service/             # 按商品聚合落库、条件更新、Outbox 重试
+├── rabbitmq/            # MQAsyncSender / OrderReceiver / MQSender
+├── config/              # RabbitMQ / Redis / 线程池 / 安全 / 监控配置
+├── interceptor/         # MyBatis 慢 SQL 拦截、限流拦截器
 ├── entity/ mapper/      # MyBatis-Plus 实体与数据访问层
 ├── vo/ result/ exception/  # 出入参、统一响应、全局异常
-└── util/                # 雪花 ID、JWT 工具
+└── util/                # 雪花 ID、JWT、动态限流器
 src/main/resources/
-├── application.yml      # 敏感配置均为环境变量占位符
-├── seckill.lua          # 消费端原子扣减脚本
-└── sql/schema.sql       # 建表脚本
-docs/                    # JMeter 压测脚本
+├── application.yaml     # 敏感配置均为环境变量占位符
+├── logback-spring.xml   # trace_id 链路日志、慢 SQL 独立文件
+├── lua/seckill.lua      # 消费端原子扣减脚本
+└── sql/seckills.sql     # 建表脚本
+docs/
+├── images/              # 架构图
 ```
 
 ## License
